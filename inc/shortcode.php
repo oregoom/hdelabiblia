@@ -27,7 +27,7 @@ function id_hb_shortcode_per_at($ID_Cat){
                     <a href="<?php the_permalink(); ?>" class="card-link text-decoration-none">
                         <div class="card h-100 shadow-sm">
                             <?php if (has_post_thumbnail()): ?>
-                                <img src="<?php the_post_thumbnail_url(); ?>" class="card-img-top" alt="<?php the_title(); ?>">
+                                <img src="<?php the_post_thumbnail_url(); ?>" class="card-img-top img-fluid" alt="<?php the_title(); ?>">
                             <?php endif; ?>
                             <div class="card-body">
                                 <h5 class="card-title"><?php the_title(); ?></h5>
