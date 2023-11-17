@@ -6,7 +6,7 @@
         <h1 class="page-title text-center h1 fw-bold mb-4" style="font-family: 'Salsa',display; font-size: 52px;"><span style="color: #F76305;">Buscar</span> más Historías</h1>
 
         <div class="mb-4 mx-lg-5 px-lg-5"><div class="mx-lg-5 px-lg-5"><div class="mx-lg-5 px-lg-5">
-            <?php echo do_shortcode('[ivory-search id="112" title="AJAX Search Form HB"]'); ?>
+            <?php echo do_shortcode('[ivory-search id="9107" title="AJAX Search Form HB"]'); ?>
         </div></div></div>
 
 <div class="my-5">
