@@ -16,7 +16,7 @@
         
         <?php wp_head(); ?>
     </head>
-    <body>
+    <body <?php body_class(); ?>>
         
         <header>            
             <nav class="navbar navbar-expand-lg bg-body-tertiary">

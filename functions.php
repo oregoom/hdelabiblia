@@ -276,3 +276,35 @@ function mi_tema_verificar_actualizacion($transient) {
     return $transient;
 }
 
+
+
+
+
+
+function mi_tema_registrar_bloque() {
+    // Asegúrate de cambiar las rutas de los scripts según tu estructura de carpetas
+    wp_register_script(
+        'mi-bloque-script',
+        get_stylesheet_directory_uri() . '/js/bloque.js',
+        array('wp-blocks', 'wp-editor', 'wp-components', 'wp-i18n', 'wp-element', 'wp-data'),
+        filemtime(get_stylesheet_directory() . '/js/bloque.js')
+    );
+
+    register_block_type('mi-tema/bloque', array(
+        'editor_script' => 'mi-bloque-script',
+    ));
+}
+add_action('init', 'mi_tema_registrar_bloque');
+
+
+
+function enqueue_featured_image_block_assets() {
+    wp_enqueue_script(
+        'featured-image-block',
+        get_template_directory_uri() . '/blocks/featured-image-block.js',
+        array('wp-blocks', 'wp-components', 'wp-data')
+    );
+}
+add_action('enqueue_block_editor_assets', 'enqueue_featured_image_block_assets');
+
+
