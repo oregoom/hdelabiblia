@@ -395,6 +395,8 @@ class Github_Theme_Updater {
 // Inicializa la clase con los detalles de tu tema y repositorio
 new Github_Theme_Updater( 'hdelabiblia', 'oregoom', 'hdelabiblia' );
 
+delete_site_transient('update_themes');
+
 
 
 
