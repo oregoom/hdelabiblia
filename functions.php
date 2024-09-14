@@ -224,7 +224,7 @@ function HBiblia_insertar_adsense() {
  /**
  * Enganchar la función para verificar actualizaciones en el filtro pre_set_site_transient_update_themes
  */
-add_filter('pre_set_site_transient_update_themes', 'mi_tema_verificar_actualizacion');
+//add_filter('pre_set_site_transient_update_themes', 'mi_tema_verificar_actualizacion');
 
 /**
  * Verifica si hay una actualización disponible para el tema desde GitHub.
@@ -276,6 +276,64 @@ function mi_tema_verificar_actualizacion($transient) {
     return $transient;
 }
 
+class Mi_Tema_Update_Checker {
+
+    private $tema_slug = 'hdelabiblia';
+    private $usuario_github = 'oregoom';
+    private $repositorio_github = 'hdelabiblia';
+
+    public function __construct() {
+        add_filter( 'pre_set_site_transient_update_themes', [ $this, 'verificar_actualizacion' ] );
+    }
+
+    public function verificar_actualizacion( $transient ) {
+        if ( empty( $transient->checked ) ) {
+            return $transient;
+        }
+
+        $version_remota = get_transient( 'mi_tema_version_remota' );
+
+        if ( false === $version_remota ) {
+            $url_version = "https://raw.githubusercontent.com/{$this->usuario_github}/{$this->repositorio_github}/master/style.css";
+            $response = wp_remote_get( $url_version );
+
+            if ( is_wp_error( $response ) ) {
+                error_log('Error al obtener la versión remota: ' . $response->get_error_message());
+                return $transient;
+            }
+
+            $contenido_style_css = wp_remote_retrieve_body( $response );
+
+            if ( empty( $contenido_style_css ) ) {
+                error_log('El archivo style.css está vacío.');
+                return $transient;
+            }
+
+            if ( preg_match( '/Version: (.*)/i', $contenido_style_css, $match ) ) {
+                $version_remota = trim( $match[1] );
+                set_transient( 'mi_tema_version_remota', $version_remota, 12 * HOUR_IN_SECONDS );
+            } else {
+                $version_remota = '0.0.0';
+            }
+        }
+
+        $tema_datos = wp_get_theme( $this->tema_slug );
+        $version_local = $tema_datos->get( 'Version' );
+
+        if ( version_compare( $version_local, $version_remota, '<' ) ) {
+            $transient->response[ $this->tema_slug ] = [
+                'theme'       => $this->tema_slug,
+                'new_version' => $version_remota,
+                'url'         => "https://github.com/{$this->usuario_github}/{$this->repositorio_github}",
+                'package'     => "https://github.com/{$this->usuario_github}/{$this->repositorio_github}/archive/master.zip",
+            ];
+        }
+
+        return $transient;
+    }
+}
+
+new Mi_Tema_Update_Checker();
 
 
 
