@@ -401,8 +401,3 @@ add_action('enqueue_block_editor_assets', 'enqueue_featured_image_block_assets')
 
 
 
-
-function theme_divi_compatibility() {
-    add_theme_support('et-builder-modules'); // Añade soporte para módulos del constructor de Divi.
-}
-add_action('after_setup_theme', 'theme_divi_compatibility');
