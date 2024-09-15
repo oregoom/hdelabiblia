@@ -69,6 +69,9 @@ add_theme_support('post-thumbnails');
 // Incluir shortcodes
 include_once 'inc/shortcode.php';
 
+
+
+
 /*
  * Páginas de Administración
  */
@@ -220,10 +223,10 @@ function HBiblia_insertar_adsense() {
 
 // Función para la página de actualización de GitHub
 function HBiblia_api_update_page() {
-    // Obtener el token, la URL del repositorio y la URL del archivo ZIP desde la base de datos
+    // Obtener el token, el usuario y el repositorio desde la base de datos
     $github_token = get_option('github_access_token');
-    $github_repo = get_option('github_repo_url');
-    $github_zip_url = get_option('github_zip_url');
+    $github_user = get_option('github_user');
+    $github_repo = get_option('github_repo');
 
     ?>
     <div class="wrap">
@@ -234,18 +237,24 @@ function HBiblia_api_update_page() {
             <table class="form-table">
                 <tr valign="top">
                     <th scope="row">GitHub Access Token:</th>
-                    <td><input type="text" name="github_access_token" value="<?php echo esc_attr($github_token); ?>" placeholder="Ingrese su token de GitHub aquí" />
-                    <p class="description">Ejemplo: <code>ghp_xxx...xx</code></p></td>
+                    <td>
+                        <input type="text" name="github_access_token" value="<?php echo esc_attr($github_token); ?>" placeholder="Ingrese su token de GitHub aquí" />
+                        <p class="description">Ejemplo: <code>ghp_xxx...xx</code></p>
+                    </td>
                 </tr>
                 <tr valign="top">
-                    <th scope="row">GitHub Repo URL:</th>
-                    <td><input type="text" name="github_repo_url" value="<?php echo esc_attr($github_repo); ?>" />
-                    <p class="description">Ingrese la URL del repositorio de GitHub, por ejemplo: <code>https://github.com/tuusuario/tutema</code></p></td>
+                    <th scope="row">Usuario de GitHub:</th>
+                    <td>
+                        <input type="text" name="github_user" value="<?php echo esc_attr($github_user); ?>" placeholder="Ingrese el usuario de GitHub aquí" />
+                        <p class="description">Ingrese el nombre del usuario de GitHub, por ejemplo: <code>tuusuario</code></p>
+                    </td>
                 </tr>
                 <tr valign="top">
-                    <th scope="row">GitHub ZIP URL:</th>
-                    <td><input type="text" name="github_zip_url" value="<?php echo esc_attr($github_zip_url); ?>" />
-                    <p class="description">Ingrese la URL directa al archivo ZIP del tema en GitHub, por ejemplo: <code>https://github.com/tuusuario/tutema/archive/refs/heads/main.zip</code></p></td>
+                    <th scope="row">Nombre del repositorio:</th>
+                    <td>
+                        <input type="text" name="github_repo" value="<?php echo esc_attr($github_repo); ?>" placeholder="Ingrese el nombre del repositorio aquí" />
+                        <p class="description">Ingrese el nombre del repositorio en GitHub, por ejemplo: <code>tutema</code></p>
+                    </td>
                 </tr>
             </table>
             <?php submit_button(); ?>
@@ -254,12 +263,30 @@ function HBiblia_api_update_page() {
     <?php
 }
 
-// Registrar los campos del token de GitHub y las URLs en la base de datos
+// Registrar los campos del token de GitHub, usuario y repositorio en la base de datos
 add_action('admin_init', 'HBiblia_registrar_opciones_github');
 function HBiblia_registrar_opciones_github() {
     register_setting('HBiblia-api-settings-group', 'github_access_token');
-    register_setting('HBiblia-api-settings-group', 'github_repo_url');
-    register_setting('HBiblia-api-settings-group', 'github_zip_url');
+    register_setting('HBiblia-api-settings-group', 'github_user');
+    register_setting('HBiblia-api-settings-group', 'github_repo');
+}
+
+// Función para obtener la URL de la API de GitHub usando el usuario y el repositorio
+function get_github_api_url() {
+    // Obtener el usuario y el repositorio desde la base de datos
+    $github_user = get_option('github_user');
+    $github_repo = get_option('github_repo');
+
+    // Si no se han proporcionado el usuario o el repositorio, devolver vacío
+    if (empty($github_user) || empty($github_repo)) {
+        error_log("El usuario o el repositorio de GitHub están vacíos.");
+        return '';
+    }
+
+    // Construir la URL de la API para obtener el último release
+    $api_url = "https://api.github.com/repos/$github_user/$github_repo/releases/latest";
+
+    return $api_url;
 }
 
 // Función para obtener el token de GitHub desde la base de datos
@@ -283,63 +310,101 @@ function get_current_theme_version() {
     return $theme_data->get('Version'); // Retorna la versión actual del archivo style.css
 }
 
-// Verificación de actualización de temas en GitHub
-if (!function_exists('get_github_remote_version')) {
-    function get_github_remote_version() {
-        $token = get_github_access_token();
-        $repo_url = get_github_repo_url();
 
-        if (empty($token) || empty($repo_url)) {
-            return get_current_theme_version(); // Si no hay token o URL, no se puede comprobar
-        }
 
-        $response = wp_remote_get($repo_url . '/releases/latest', array(
-            'headers' => array(
-                'Authorization' => 'token ' . $token,
-            ),
-        ));
-
-        if (is_wp_error($response)) {
-            return get_current_theme_version(); // Usa la versión actual en caso de error
-        }
-
-        $body = wp_remote_retrieve_body($response);
-        preg_match('/tag\/v([0-9.]+)/', $body, $matches);
-        
-        if (!empty($matches[1])) {
-            return $matches[1]; // Retorna la versión remota
-        }
-
-        return get_current_theme_version(); // Si no se encuentra la versión remota
-    }
-}
-
-// Verificación y actualización del tema desde GitHub
 add_filter('pre_set_site_transient_update_themes', 'check_for_github_updates');
 function check_for_github_updates($transient) {
     if (empty($transient->checked)) {
         return $transient;
     }
 
-    $current_version = get_current_theme_version();
-    $remote_version = get_github_remote_version();
-    $zip_url = get_github_zip_url();
+    $current_version = get_current_theme_version();  // Obtener la versión actual del tema
+    $remote_version = get_github_remote_version();   // Obtener la versión remota de GitHub
 
+    // Obtener la URL del archivo ZIP desde la base de datos
+    $zip_url = get_option('github_zip_url');
+
+    // Obtener el usuario y el repositorio desde la base de datos
+    $github_user = get_option('github_user');
+    $github_repo = get_option('github_repo');
+
+    // Construir la URL dinámica para el repositorio del usuario
+    $repo_url = "https://github.com/$github_user/$github_repo/releases/latest";
+
+    // Registro de las versiones y la URL del ZIP
+    error_log("Versión actual: $current_version, Versión remota: $remote_version, URL ZIP: $zip_url");
+
+    // Verificar si la versión remota es mayor que la local y si hay una URL ZIP válida
     if (version_compare($current_version, $remote_version, '<') && !empty($zip_url)) {
         $theme_data = wp_get_theme();
+
+        // Registro de éxito antes de la actualización
+        error_log("Actualización encontrada. Versión remota: $remote_version, URL ZIP: $zip_url");
+
+        // Asignar la actualización al objeto $transient
         $transient->response[$theme_data->get_stylesheet()] = array(
             'new_version' => $remote_version,
-            'url'         => get_github_repo_url(),
+            'url'         => $repo_url,  // Usar la URL dinámica
             'package'     => $zip_url
         );
+    } else {
+        // Registro de falla si no se encontró la actualización o la URL del ZIP
+        error_log("No se encontró actualización o no hay URL del archivo ZIP.");
     }
 
     return $transient;
 }
 
-add_action('in_theme_update_message', 'github_theme_update_message', 10, 2);
-function github_theme_update_message($data, $response) {
-    if (isset($response['theme']) && $response['theme'] === wp_get_theme()->get_stylesheet()) {
-        echo '<p><strong>Una nueva versión del tema está disponible en GitHub.</strong></p>';
+// Función para obtener la versión remota desde GitHub
+function get_github_remote_version() {
+    $token = get_github_access_token();  // Obtener el token de GitHub
+    $api_url = get_github_api_url();     // Obtener la URL de la API dinámicamente
+
+        // Si no hay URL de API disponible, regresar la versión actual
+        if (empty($api_url)) {
+            error_log("No se pudo construir la URL de la API de GitHub.");
+            return get_current_theme_version();
+        }
+
+    if (empty($token)) {
+        error_log("Token de GitHub está vacío");
+        return get_current_theme_version();
     }
+
+    // Realizar la solicitud a GitHub para obtener la versión más reciente
+    $response = wp_remote_get($api_url, array(
+        'headers' => array(
+            'Authorization' => 'token ' . $token,
+            'Accept'        => 'application/vnd.github.v3+json',
+        ),
+    ));
+
+    // Verificar si la solicitud tuvo éxito
+    if (is_wp_error($response)) {
+        error_log("Error en la respuesta de GitHub: " . $response->get_error_message());
+        return get_current_theme_version();
+    }
+
+    // Decodificar la respuesta JSON
+    $body = wp_remote_retrieve_body($response);
+    $data = json_decode($body, true);
+
+    // Registro de la respuesta completa para depuración
+    error_log("Respuesta completa de GitHub: " . print_r($data, true));
+
+    // Verificar si están presentes los campos 'tag_name' y 'zipball_url'
+    if (isset($data['tag_name']) && isset($data['zipball_url'])) {
+        // Eliminar el prefijo "v" si está presente en 'tag_name'
+        $remote_version = ltrim($data['tag_name'], 'v');  // Eliminar 'v' del inicio de la versión
+        
+        // Registro de éxito de la versión remota
+        error_log("Versión remota obtenida del tag_name: " . $remote_version);
+        
+        // Guardar la URL del ZIP en la base de datos para usarla luego
+        update_option('github_zip_url', $data['zipball_url']);
+        return $remote_version;
+    }
+
+    error_log("No se encontró 'tag_name' o 'zipball_url' en la respuesta de GitHub");
+    return get_current_theme_version(); // Retorna la versión actual si falla
 }
