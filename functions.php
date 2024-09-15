@@ -408,3 +408,42 @@ function get_github_remote_version() {
     error_log("No se encontró 'tag_name' o 'zipball_url' en la respuesta de GitHub");
     return get_current_theme_version(); // Retorna la versión actual si falla
 }
+
+
+// Agregar el token de GitHub al proceso de descarga
+add_filter('http_request_args', 'add_github_token_to_download', 10, 2);
+function add_github_token_to_download($args, $url) {
+    $token = get_option('github_access_token'); // Obtén el token de GitHub
+
+    if (strpos($url, 'github.com/repos') !== false && !empty($token)) {
+        // Agregar el encabezado de autorización si se trata de una URL de GitHub
+        $args['headers']['Authorization'] = 'token ' . $token;
+    }
+
+    return $args;
+}
+
+// Después de la instalación, renombrar la carpeta del tema descargado
+add_filter('upgrader_post_install', 'rename_theme_folder_after_update', 10, 3);
+function rename_theme_folder_after_update($response, $hook_extra, $result) {
+    // Verificar si estamos actualizando un tema
+    if (isset($hook_extra['type']) && $hook_extra['type'] === 'theme') {
+        $correct_theme_dir = WP_CONTENT_DIR . '/themes/hdelabiblia'; // Ruta de la carpeta correcta
+        $downloaded_theme_dir = $result['destination']; // Ruta de la carpeta descargada
+
+        // Si la carpeta descargada tiene un nombre incorrecto, renombrarla
+        if ($downloaded_theme_dir !== $correct_theme_dir) {
+            // Borrar la carpeta original vacía
+            if (is_dir($correct_theme_dir)) {
+                wp_delete_file($correct_theme_dir);
+            }
+
+            // Renombrar la carpeta con el sufijo al nombre correcto
+            rename($downloaded_theme_dir, $correct_theme_dir);
+
+            // Actualizar la ruta del tema en el resultado de la instalación
+            $result['destination'] = $correct_theme_dir;
+        }
+    }
+    return $response;
+}
