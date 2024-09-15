@@ -423,27 +423,22 @@ function add_github_token_to_download($args, $url) {
     return $args;
 }
 
-// Después de la instalación, renombrar la carpeta del tema descargado
 add_filter('upgrader_post_install', 'rename_theme_folder_after_update', 10, 3);
 function rename_theme_folder_after_update($response, $hook_extra, $result) {
-    // Verificar si estamos actualizando un tema
-    if (isset($hook_extra['type']) && $hook_extra['type'] === 'theme') {
-        $correct_theme_dir = WP_CONTENT_DIR . '/themes/hdelabiblia'; // Ruta de la carpeta correcta
-        $downloaded_theme_dir = $result['destination']; // Ruta de la carpeta descargada
+    global $wp_filesystem;
 
-        // Si la carpeta descargada tiene un nombre incorrecto, renombrarla
-        if ($downloaded_theme_dir !== $correct_theme_dir) {
-            // Borrar la carpeta original vacía
-            if (is_dir($correct_theme_dir)) {
-                wp_delete_file($correct_theme_dir);
-            }
+    if (isset($hook_extra['theme']) && $hook_extra['theme'] == 'hdelabiblia') {
+        $current_theme_folder = get_theme_root() . '/hdelabiblia'; // Ruta de la carpeta del tema actual
+        $downloaded_theme_folder = $result['destination']; // Ruta de la carpeta del tema descargado (con nombre extraño)
 
-            // Renombrar la carpeta con el sufijo al nombre correcto
-            rename($downloaded_theme_dir, $correct_theme_dir);
+        // Mover archivos de la carpeta descargada a la carpeta original
+        $wp_filesystem->move($downloaded_theme_folder, $current_theme_folder, true);
+        
+        // Limpiar la carpeta temporal
+        $wp_filesystem->delete($downloaded_theme_folder, true);
 
-            // Actualizar la ruta del tema en el resultado de la instalación
-            $result['destination'] = $correct_theme_dir;
-        }
+        $result['destination'] = $current_theme_folder; // Asegurarse de que la nueva carpeta sea la correcta
     }
+
     return $response;
 }
