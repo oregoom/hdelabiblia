@@ -72,57 +72,100 @@ include_once 'inc/shortcode.php';
 
 //ACTUALIZAR TEMA DESDE GITHUB
   // set_site_transient('update_themes', null);
- /**
- * Enganchar la función para verificar actualizaciones en el filtro pre_set_site_transient_update_themes
- */
-add_filter('pre_set_site_transient_update_themes', 'mi_tema_verificar_actualizacion');
-
-/**
- * Verifica si hay una actualización disponible para el tema desde GitHub.
- *
- * @param object $transient Datos transitorios de actualización de temas.
- * @return object Datos transitorios modificados con información de actualización.
- */
-function mi_tema_verificar_actualizacion($transient) {
-    if (empty($transient->checked)) {
-        return $transient;
-    }
-
-    // Configura el slug del tema y la URL base de GitHub.
-    $tema_slug = 'hdelabiblia'; // Reemplazar con el slug de tu tema
-    $usuario_github = 'oregoom'; // Reemplazar con tu usuario de GitHub
-    $repositorio_github = 'hdelabiblia'; // Reemplazar con el nombre de tu repositorio
-
-    // Obtener la versión remota desde GitHub
-    $url_version = "https://raw.githubusercontent.com/{$usuario_github}/{$repositorio_github}/master/style.css";
-    $response = wp_remote_get($url_version);
-
-    if (is_wp_error($response)) {
-        // Manejar error en la solicitud
-        return $transient;
-    }
-
-    $contenido_style_css = wp_remote_retrieve_body($response);
-    $version_remota = '0.0.0';
+  function geko_check_update( $transient ) {
+      if ( empty( $transient->checked ) ) {
+          return $transient;
+      }
+      $theme_data = wp_get_theme(wp_get_theme()->template);
+      $theme_slug = $theme_data->get_template();
+      //Delete '-master' from the end of slug
+      $theme_uri_slug = preg_replace('/-master$/', '', $theme_slug);
+     
+     $remote_version = '0.0.0';
+     $style_css = wp_remote_get("https://raw.githubusercontent.com/oregoom/".$theme_uri_slug."/master/style.css")['body'];
+    if ( preg_match( '/^[ \t\/*#@]*' . preg_quote( 'Version', '/' ) . ':(.*)$/mi', $style_css, $match ) && $match[1] )
+         $remote_version = _cleanup_header_comment( $match[1] );
     
-    // Extraer la versión del tema del contenido de style.css
-    if (preg_match('/Version: (.*)/i', $contenido_style_css, $match)) {
-        $version_remota = trim($match[1]);
+     if (version_compare($theme_data->version, $remote_version, '<')) {
+         $transient->response[$theme_slug] = array(
+             'theme'       => $theme_slug,
+             'new_version' => $remote_version,
+             'url'         => 'https://github.com/oregoom/'.$theme_uri_slug,
+             'package'     => 'https://github.com/oregoom/'.$theme_uri_slug.'/archive/master.zip',
+         );
+     }
+     return $transient;
+ }
+ add_filter( 'pre_set_site_transient_update_themes', 'geko_check_update' );
+
+ 
+ class Geko_Theme_Update_Checker {
+
+    public function __construct() {
+        // Engancha la función de comprobación de actualización al filtro de WordPress
+        add_filter( 'pre_set_site_transient_update_themes', [ $this, 'check_for_update' ] );
     }
 
-    // Obtener la versión actual del tema
-    $tema_datos = wp_get_theme($tema_slug);
-    $version_local = $tema_datos->get('Version');
+    public function check_for_update( $transient ) {
+        // Verificamos si ya se ha consultado el estado de los temas
+        if ( empty( $transient->checked ) ) {
+            return $transient;
+        }
 
-    // Comparar versión local con la remota
-    if (version_compare($version_local, $version_remota, '<')) {
-        $transient->response[$tema_slug] = [
-            'theme'       => $tema_slug,
-            'new_version' => $version_remota,
-            'url'         => "https://github.com/{$usuario_github}/{$repositorio_github}",
-            'package'     => "https://github.com/{$usuario_github}/{$repositorio_github}/archive/master.zip",
-        ];
+        // Obtener los datos del tema actual
+        $theme_data = wp_get_theme( wp_get_theme()->template );
+        $theme_slug = sanitize_key( $theme_data->get_template() ); // Limpiar el slug del tema
+
+        // Eliminar '-master' del slug si está presente
+        $theme_uri_slug = untrailingslashit( str_replace( '-master', '', $theme_slug ) );
+
+        // Intentamos obtener la versión remota desde la caché
+        $remote_version = get_transient( 'geko_theme_remote_version' );
+        
+        // Si no hay versión en caché, obtenemos la versión desde GitHub
+        if ( false === $remote_version ) {
+            // Hacer una solicitud HTTP para obtener el archivo style.css desde GitHub
+            $response = wp_remote_get( "https://raw.githubusercontent.com/oregoom/{$theme_uri_slug}/master/style.css" );
+
+            // Verificar si hubo errores en la solicitud HTTP
+            if ( is_wp_error( $response ) ) {
+                return $transient; // Si hay un error, regresamos sin modificar el transitorio
+            }
+
+            // Obtener el contenido del archivo style.css
+            $style_css = wp_remote_retrieve_body( $response );
+
+            // Verificar que el contenido no esté vacío
+            if ( empty( $style_css ) ) {
+                return $transient; // Si el archivo está vacío, regresamos sin cambios
+            }
+
+            // Buscar la versión en el archivo style.css
+            if ( preg_match( '/^[ \t\/*#@]*' . preg_quote( 'Version', '/' ) . ':(.*)$/mi', $style_css, $match ) && $match[1] ) {
+                $remote_version = _cleanup_header_comment( $match[1] );
+                
+                // Guardar la versión remota en un transitorio para evitar consultas repetidas
+                set_transient( 'geko_theme_remote_version', $remote_version, 12 * HOUR_IN_SECONDS ); // Caché por 12 horas
+            } else {
+                // Si no encontramos la versión en el archivo style.css, dejamos la versión remota en "0.0.0"
+                $remote_version = '0.0.0';
+            }
+        }
+
+        // Comparamos las versiones del tema local y la remota
+        if ( version_compare( $theme_data->version, $remote_version, '<' ) ) {
+            // Si la versión remota es mayor, se configura el transitorio para notificar la actualización
+            $transient->response[ $theme_slug ] = array(
+                'theme'       => $theme_slug,
+                'new_version' => $remote_version,
+                'url'         => "https://github.com/oregoom/{$theme_uri_slug}",
+                'package'     => "https://github.com/oregoom/{$theme_uri_slug}/archive/master.zip",
+            );
+        }
+
+        return $transient; // Devolver el transitorio actualizado
     }
-
-    return $transient;
 }
+
+// Instanciar la clase para activar la funcionalidad
+//new Geko_Theme_Update_Checker();
