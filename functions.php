@@ -71,75 +71,113 @@ include_once 'inc/shortcode.php';
 
 
 
+// Agregar el token de GitHub al proceso de descarga
+add_filter('http_request_args', 'add_github_token_to_download', 10, 2);
+function add_github_token_to_download($args, $url) {
+    $token = get_option('github_access_token'); // Obtén el token de GitHub
 
-
-class Geko_Theme_Update_Checker {
-
-    public function __construct() {
-        // Engancha la función de comprobación de actualización al filtro de WordPress
-        add_filter( 'pre_set_site_transient_update_themes', [ $this, 'check_for_update' ] );
+    if (strpos($url, 'github.com/repos') !== false && !empty($token)) {
+        // Agregar el encabezado de autorización si se trata de una URL de GitHub
+        $args['headers']['Authorization'] = 'token ' . $token;
     }
 
-    public function check_for_update( $transient ) {
-        // Verificamos si ya se ha consultado el estado de los temas
-        if ( empty( $transient->checked ) ) {
-            return $transient;
-        }
-
-        // Obtener los datos del tema actual
-        $theme_data = wp_get_theme( wp_get_theme()->template );
-        $theme_slug = sanitize_key( $theme_data->get_template() ); // Limpiar el slug del tema
-
-        // Eliminar '-master' del slug si está presente
-        $theme_uri_slug = untrailingslashit( str_replace( '-master', '', $theme_slug ) );
-
-        // Intentamos obtener la versión remota desde la caché
-        $remote_version = get_transient( 'geko_theme_remote_version' );
-        
-        // Si no hay versión en caché, obtenemos la versión desde GitHub
-        if ( false === $remote_version ) {
-            // Hacer una solicitud HTTP para obtener el archivo style.css desde GitHub
-            $response = wp_remote_get( "https://raw.githubusercontent.com/oregoom/{$theme_uri_slug}/master/style.css" );
-
-            // Verificar si hubo errores en la solicitud HTTP
-            if ( is_wp_error( $response ) ) {
-                return $transient; // Si hay un error, regresamos sin modificar el transitorio
-            }
-
-            // Obtener el contenido del archivo style.css
-            $style_css = wp_remote_retrieve_body( $response );
-
-            // Verificar que el contenido no esté vacío
-            if ( empty( $style_css ) ) {
-                return $transient; // Si el archivo está vacío, regresamos sin cambios
-            }
-
-            // Buscar la versión en el archivo style.css
-            if ( preg_match( '/^[ \t\/*#@]*' . preg_quote( 'Version', '/' ) . ':(.*)$/mi', $style_css, $match ) && $match[1] ) {
-                $remote_version = _cleanup_header_comment( $match[1] );
-                
-                // Guardar la versión remota en un transitorio para evitar consultas repetidas
-                set_transient( 'geko_theme_remote_version', $remote_version, 12 * HOUR_IN_SECONDS ); // Caché por 12 horas
-            } else {
-                // Si no encontramos la versión en el archivo style.css, dejamos la versión remota en "0.0.0"
-                $remote_version = '0.0.0';
-            }
-        }
-
-        // Comparamos las versiones del tema local y la remota
-        if ( version_compare( $theme_data->version, $remote_version, '<' ) ) {
-            // Si la versión remota es mayor, se configura el transitorio para notificar la actualización
-            $transient->response[ $theme_slug ] = array(
-                'theme'       => $theme_slug,
-                'new_version' => $remote_version,
-                'url'         => "https://github.com/oregoom/{$theme_uri_slug}",
-                'package'     => "https://github.com/oregoom/{$theme_uri_slug}/archive/master.zip",
-            );
-        }
-
-        return $transient; // Devolver el transitorio actualizado
-    }
+    return $args;
 }
 
-// Instanciar la clase para activar la funcionalidad
-new Geko_Theme_Update_Checker();
+// Después de la instalación, renombrar la carpeta del tema descargado
+add_filter('upgrader_post_install', 'rename_theme_folder_after_update', 10, 3);
+function rename_theme_folder_after_update($response, $hook_extra, $result) {
+    // Verificar si estamos actualizando un tema
+    if (isset($hook_extra['type']) && $hook_extra['type'] === 'theme') {
+        $correct_theme_dir = WP_CONTENT_DIR . '/themes/hdelabiblia'; // Ruta de la carpeta correcta
+        $downloaded_theme_dir = $result['destination']; // Ruta de la carpeta descargada
+
+        // Si la carpeta descargada tiene un nombre incorrecto, renombrarla
+        if ($downloaded_theme_dir !== $correct_theme_dir) {
+            // Borrar la carpeta original vacía
+            if (is_dir($correct_theme_dir)) {
+                wp_delete_file($correct_theme_dir);
+            }
+
+            // Renombrar la carpeta con el sufijo al nombre correcto
+            rename($downloaded_theme_dir, $correct_theme_dir);
+
+            // Actualizar la ruta del tema en el resultado de la instalación
+            $result['destination'] = $correct_theme_dir;
+        }
+    }
+    return $response;
+}
+
+// Comprobar actualizaciones y descargar el archivo desde GitHub
+add_filter('pre_set_site_transient_update_themes', 'check_for_github_updates');
+function check_for_github_updates($transient) {
+    if (empty($transient->checked)) {
+        return $transient;
+    }
+
+    $current_version = get_current_theme_version();  // Obtener la versión actual del tema
+    $remote_version = get_github_remote_version();   // Obtener la versión remota de GitHub
+
+    // Obtener la URL del archivo ZIP desde la base de datos
+    $zip_url = get_github_zip_url();  // O generar automáticamente a partir de user/repo
+
+    // Verificar si la versión remota es mayor que la local y si hay una URL ZIP válida
+    if (version_compare($current_version, $remote_version, '<') && !empty($zip_url)) {
+        $theme_data = wp_get_theme();
+
+        // Asignar la actualización al objeto $transient
+        $transient->response[$theme_data->get_stylesheet()] = array(
+            'new_version' => $remote_version,
+            'url'         => get_github_repo_url() . '/releases/latest',
+            'package'     => $zip_url
+        );
+    }
+
+    return $transient;
+}
+
+// Función para obtener la versión remota desde GitHub
+function get_github_remote_version() {
+    $token = get_github_access_token();  // Obtener el token de GitHub
+    $user = get_option('github_user');   // Usuario de GitHub desde el campo de la base de datos
+    $repo = get_option('github_repo');   // Repositorio de GitHub desde el campo de la base de datos
+
+    $repo_url = "https://api.github.com/repos/{$user}/{$repo}/releases/latest"; // URL del último release
+
+    if (empty($token)) {
+        error_log("Token de GitHub está vacío");
+        return get_current_theme_version();
+    }
+
+    // Realizar la solicitud a GitHub para obtener la versión más reciente
+    $response = wp_remote_get($repo_url, array(
+        'headers' => array(
+            'Authorization' => 'token ' . $token,
+            'Accept'        => 'application/vnd.github.v3+json',
+        ),
+    ));
+
+    // Verificar si la solicitud tuvo éxito
+    if (is_wp_error($response)) {
+        error_log("Error en la respuesta de GitHub: " . $response->get_error_message());
+        return get_current_theme_version();
+    }
+
+    // Decodificar la respuesta JSON
+    $body = wp_remote_retrieve_body($response);
+    $data = json_decode($body, true);
+
+    // Verificar si están presentes los campos 'tag_name' y 'zipball_url'
+    if (isset($data['tag_name']) && isset($data['zipball_url'])) {
+        // Eliminar el prefijo "v" si está presente en 'tag_name'
+        $remote_version = ltrim($data['tag_name'], 'v');  // Eliminar 'v' del inicio de la versión
+        
+        // Guardar la URL del ZIP en la base de datos para usarla luego
+        update_option('github_zip_url', $data['zipball_url']);
+        return $remote_version;
+    }
+
+    error_log("No se encontró 'tag_name' o 'zipball_url' en la respuesta de GitHub");
+    return get_current_theme_version(); // Retorna la versión actual si falla
+}
