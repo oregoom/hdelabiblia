@@ -70,115 +70,91 @@ add_theme_support('post-thumbnails');
 include_once 'inc/shortcode.php';
 
 
+<?php
+// Definir constantes del repositorio
+// THEME_GITHUB_REPO: URL del repositorio de GitHub que contiene el tema.
+// THEME_GITHUB_ZIP_URL: URL directa al archivo ZIP que contiene la versión más reciente del tema.
+// Asegúrate de cambiar 'tuusuario' por tu nombre de usuario de GitHub y 'tutema' por el nombre de tu repositorio.
+define('THEME_GITHUB_REPO', 'https://github.com/oregoom/hdelabiblia');
+define('THEME_GITHUB_ZIP_URL', 'https://github.com/oregoom/hdelabiblia/archive/refs/heads/main.zip'); // Cambia 'main' por la rama correspondiente si no usas 'main'.
 
-
-// Agregar el token de GitHub al proceso de descarga
-add_filter('http_request_args', 'add_github_token_to_download', 10, 2);
-function add_github_token_to_download($args, $url) {
-    $token = get_option('github_access_token'); // Obtén el token de GitHub
-
-    if (strpos($url, 'github.com/repos') !== false && !empty($token)) {
-        // Agregar el encabezado de autorización si se trata de una URL de GitHub
-        $args['headers']['Authorization'] = 'token ' . $token;
-    }
-
-    return $args;
+// Obtener la versión actual del tema desde el archivo style.css
+// Esta función utiliza la API de WordPress 'wp_get_theme()' para acceder a los metadatos del tema,
+// y extrae específicamente la versión definida en el archivo style.css.
+function get_current_theme_version() {
+    $theme_data = wp_get_theme(); // Obtiene los datos del tema actual (como nombre, versión, etc.)
+    return $theme_data->get('Version'); // Retorna la versión actual del archivo style.css
 }
 
-// Después de la instalación, renombrar la carpeta del tema descargado
-add_filter('upgrader_post_install', 'rename_theme_folder_after_update', 10, 3);
-function rename_theme_folder_after_update($response, $hook_extra, $result) {
-    // Verificar si estamos actualizando un tema
-    if (isset($hook_extra['type']) && $hook_extra['type'] === 'theme') {
-        $correct_theme_dir = WP_CONTENT_DIR . '/themes/hdelabiblia'; // Ruta de la carpeta correcta
-        $downloaded_theme_dir = $result['destination']; // Ruta de la carpeta descargada
-
-        // Si la carpeta descargada tiene un nombre incorrecto, renombrarla
-        if ($downloaded_theme_dir !== $correct_theme_dir) {
-            // Borrar la carpeta original vacía
-            if (is_dir($correct_theme_dir)) {
-                wp_delete_file($correct_theme_dir);
-            }
-
-            // Renombrar la carpeta con el sufijo al nombre correcto
-            rename($downloaded_theme_dir, $correct_theme_dir);
-
-            // Actualizar la ruta del tema en el resultado de la instalación
-            $result['destination'] = $correct_theme_dir;
-        }
-    }
-    return $response;
-}
-
-// Comprobar actualizaciones y descargar el archivo desde GitHub
-add_filter('pre_set_site_transient_update_themes', 'check_for_github_updates');
+// Función para verificar si hay una actualización disponible en GitHub.
+// Esta función es la clave para comprobar si el tema actual tiene una nueva versión en GitHub.
+// Compara la versión obtenida de style.css con la versión más reciente de GitHub.
 function check_for_github_updates($transient) {
+    // Si no hay temas instalados que se estén verificando, salimos.
     if (empty($transient->checked)) {
         return $transient;
     }
 
-    $current_version = wp_get_theme()->get('Version');  // Obtener la versión actual del tema activo
-    $remote_version = get_github_remote_version();   // Obtener la versión remota de GitHub
+    // Obtener la versión actual del tema (desde style.css)
+    $current_version = get_current_theme_version();
 
-    // Obtener la URL del archivo ZIP desde la base de datos
-    $zip_url = get_option('github_zip_url');;  // O generar automáticamente a partir de user/repo
-
-    // Verificar si la versión remota es mayor que la local y si hay una URL ZIP válida
-    if (version_compare($current_version, $remote_version, '<') && !empty($zip_url)) {
+    // Obtener la versión más reciente publicada en GitHub
+    $remote_version = get_github_remote_version();
+    
+    // Si la versión en GitHub es mayor que la versión actual, configuramos la actualización.
+    if (version_compare($current_version, $remote_version, '<')) {
+        // Obtiene los datos del tema actual desde style.css.
         $theme_data = wp_get_theme();
-
-        // Asignar la actualización al objeto $transient
+        // Establecemos los datos de respuesta para la actualización, incluyendo la nueva versión y el enlace para descargar el ZIP.
         $transient->response[$theme_data->get_stylesheet()] = array(
-            'new_version' => $remote_version,
-            'url'         => get_option('github_repo_url') . '/releases/latest',
-            'package'     => $zip_url
+            'new_version' => $remote_version, // Nueva versión encontrada en GitHub.
+            'url'         => THEME_GITHUB_REPO, // URL del repositorio del tema en GitHub.
+            'package'     => THEME_GITHUB_ZIP_URL // Enlace directo al ZIP para descargar el tema.
         );
     }
-
+    
+    // Retorna el objeto $transient con los detalles de actualización si corresponde.
     return $transient;
 }
+// El filtro 'pre_set_site_transient_update_themes' permite modificar el objeto de actualizaciones de temas.
+// Añadimos la función check_for_github_updates al filtro para que WordPress sepa que debe verificar GitHub.
+add_filter('pre_set_site_transient_update_themes', 'check_for_github_updates');
 
-// Función para obtener la versión remota desde GitHub
+// Función para obtener la versión más reciente del tema desde GitHub.
+// Esta función realiza una solicitud HTTP a la página de lanzamientos del repositorio de GitHub para
+// obtener la versión más reciente del tema disponible.
 function get_github_remote_version() {
-    $token = "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";  // Obtener el token de GitHub
-    $user = get_option('github_user');   // Usuario de GitHub desde el campo de la base de datos
-    $repo = get_option('github_repo');   // Repositorio de GitHub desde el campo de la base de datos
+    // Realizamos una solicitud GET a la página de lanzamientos del repositorio en GitHub.
+    $response = wp_remote_get(THEME_GITHUB_REPO . '/releases/latest');
 
-    $repo_url = "https://api.github.com/repos/{$user}/{$repo}/releases/latest"; // URL del último release
-
-    if (empty($token)) {
-        error_log("Token de GitHub está vacío");
-        return get_current_theme_version();
-    }
-
-    // Realizar la solicitud a GitHub para obtener la versión más reciente
-    $response = wp_remote_get($repo_url, array(
-        'headers' => array(
-            'Authorization' => 'token ' . $token,
-            'Accept'        => 'application/vnd.github.v3+json',
-        ),
-    ));
-
-    // Verificar si la solicitud tuvo éxito
+    // Si hay un error en la solicitud, retornamos la versión actual del tema.
     if (is_wp_error($response)) {
-        error_log("Error en la respuesta de GitHub: " . $response->get_error_message());
-        return get_current_theme_version();
+        return get_current_theme_version(); // En caso de error, usamos la versión actual del tema.
     }
 
-    // Decodificar la respuesta JSON
+    // Obtenemos el cuerpo de la respuesta.
     $body = wp_remote_retrieve_body($response);
-    $data = json_decode($body, true);
-
-    // Verificar si están presentes los campos 'tag_name' y 'zipball_url'
-    if (isset($data['tag_name']) && isset($data['zipball_url'])) {
-        // Eliminar el prefijo "v" si está presente en 'tag_name'
-        $remote_version = ltrim($data['tag_name'], 'v');  // Eliminar 'v' del inicio de la versión
-        
-        // Guardar la URL del ZIP en la base de datos para usarla luego
-        update_option('github_zip_url', $data['zipball_url']);
-        return $remote_version;
+    // Buscamos la versión del último lanzamiento usando una expresión regular.
+    preg_match('/tag\/v([0-9.]+)/', $body, $matches);
+    
+    // Si encontramos un número de versión válido, lo retornamos.
+    if (!empty($matches[1])) {
+        return $matches[1]; // Retorna la versión extraída desde GitHub (por ejemplo, v1.1.13).
     }
 
-    error_log("No se encontró 'tag_name' o 'zipball_url' en la respuesta de GitHub");
-    return get_current_theme_version(); // Retorna la versión actual si falla
+    // Si no se puede obtener la versión remota, retorna la versión actual del tema.
+    return get_current_theme_version();
 }
+
+// Mostrar un mensaje en la página de administración de temas cuando hay una actualización disponible.
+// Esta función se ejecuta cuando se detecta una nueva versión y se muestra un mensaje en la interfaz de administración.
+function github_theme_update_message($data, $response) {
+    // Verifica si el tema actual es el que está siendo actualizado.
+    if (isset($response['theme']) && $response['theme'] === wp_get_theme()->get_stylesheet()) {
+        // Muestra un mensaje informando que hay una nueva versión disponible en GitHub.
+        echo '<p><strong>Una nueva versión del tema está disponible en GitHub.</strong></p>';
+    }
+}
+// El hook 'in_theme_update_message' permite mostrar un mensaje en la página de administración de temas.
+// Añadimos nuestra función github_theme_update_message para mostrar un mensaje cuando haya una actualización.
+add_action('in_theme_update_message', 'github_theme_update_message', 10, 2);
