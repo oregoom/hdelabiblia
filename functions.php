@@ -71,6 +71,7 @@ include_once 'inc/shortcode.php';
 
 
 
+
 // Agregar el token de GitHub al proceso de descarga
 add_filter('http_request_args', 'add_github_token_to_download', 10, 2);
 function add_github_token_to_download($args, $url) {
@@ -116,11 +117,11 @@ function check_for_github_updates($transient) {
         return $transient;
     }
 
-    $current_version = get_current_theme_version();  // Obtener la versión actual del tema
+    $current_version = wp_get_theme()->get('Version');  // Obtener la versión actual del tema activo
     $remote_version = get_github_remote_version();   // Obtener la versión remota de GitHub
 
     // Obtener la URL del archivo ZIP desde la base de datos
-    $zip_url = get_github_zip_url();  // O generar automáticamente a partir de user/repo
+    $zip_url = get_option('github_zip_url');;  // O generar automáticamente a partir de user/repo
 
     // Verificar si la versión remota es mayor que la local y si hay una URL ZIP válida
     if (version_compare($current_version, $remote_version, '<') && !empty($zip_url)) {
@@ -129,7 +130,7 @@ function check_for_github_updates($transient) {
         // Asignar la actualización al objeto $transient
         $transient->response[$theme_data->get_stylesheet()] = array(
             'new_version' => $remote_version,
-            'url'         => get_github_repo_url() . '/releases/latest',
+            'url'         => get_option('github_repo_url') . '/releases/latest',
             'package'     => $zip_url
         );
     }
@@ -139,7 +140,7 @@ function check_for_github_updates($transient) {
 
 // Función para obtener la versión remota desde GitHub
 function get_github_remote_version() {
-    $token = get_github_access_token();  // Obtener el token de GitHub
+    $token = "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";  // Obtener el token de GitHub
     $user = get_option('github_user');   // Usuario de GitHub desde el campo de la base de datos
     $repo = get_option('github_repo');   // Repositorio de GitHub desde el campo de la base de datos
 
